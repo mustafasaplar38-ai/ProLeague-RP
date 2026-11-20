@@ -22,32 +22,25 @@ client.once('ready', () => {
   console.log(`${client.user.tag} ProLeague RP aktif!`);
 });
 
-// Sunucuya yeni giren üyeye otomatik Kayıtsız rolü ver
 client.on('guildMemberAdd', async (member) => {
   const role = member.guild.roles.cache.find(
     r => r.name === '⏳ Kayıtsız'
   );
 
-  if (!role) {
-    console.log('Kayıtsız rolü bulunamadı!');
-    return;
-  }
+  if (!role) return;
 
   try {
     await member.roles.add(role);
-    console.log(`${member.user.username} kayıtsız olarak eklendi.`);
   } catch (error) {
-    console.error('Rol verilemedi:', error);
+    console.error(error);
   }
 });
 
-// Oyuncu kayıt sistemi
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
-
   if (!message.content.startsWith('.k ')) return;
 
-  if (!message.channel.name.includes('kayıt-ol')) {
+  if (message.channel.name !== 'kayıt-ol') {
     return message.reply('❌ Bu komut sadece kayıt kanalında kullanılabilir.');
   }
 
@@ -58,7 +51,15 @@ client.on('messageCreate', async (message) => {
   const member = message.mentions.members.first();
 
   if (!member) {
-    return message.reply('❌ Kullanım: `.k @oyuncu 1m`');
+    return message.reply('❌ Kullanım: `.k @oyuncu Messi | 🇦🇷 | SĞK | 1M€`');
+  }
+
+  const details = message.content
+    .replace(/^\.k\s+<@!?\d+>\s*/, '')
+    .trim();
+
+  if (!details || details.length > 32) {
+    return message.reply('❌ Oyuncu bilgisi boş olamaz ve 32 karakteri geçemez.');
   }
 
   const registeredRole = message.guild.roles.cache.find(
@@ -70,7 +71,7 @@ client.on('messageCreate', async (message) => {
   );
 
   if (!registeredRole || !unregisteredRole) {
-    return message.reply('❌ Kayıt veya Kayıtsız rolü bulunamadı!');
+    return message.reply('❌ Kayıt rolleri bulunamadı!');
   }
 
   if (member.roles.cache.has(registeredRole.id)) {
@@ -80,21 +81,23 @@ client.on('messageCreate', async (message) => {
   try {
     await member.roles.add(registeredRole);
     await member.roles.remove(unregisteredRole);
+    await member.setNickname(details);
 
     players[member.id] = {
-      name: member.user.username,
-      value: '1M€',
+      name: details,
+      value: details.split('|').pop().trim(),
       team: null
     };
 
     fs.writeFileSync(FILE, JSON.stringify(players, null, 2));
 
     message.reply(
-      `✅ ${member} başarıyla kaydedildi!\n💰 Başlangıç değeri: **1M€**`
+      `✅ ${member} başarıyla kaydedildi!\n⚽ Oyuncu: **${details}**`
     );
+
   } catch (error) {
     console.error(error);
-    message.reply('❌ Kayıt başarısız! Botun rol izinlerini kontrol edin.');
+    message.reply('❌ Kayıt başarısız! Botun rol ve takma ad izinlerini kontrol edin.');
   }
 });
 

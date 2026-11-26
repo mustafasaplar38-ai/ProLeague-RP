@@ -1,6 +1,7 @@
 {
   "name": "proleague-rp-bot",
   "version": "1.0.0",
+  "description": "PROLEAGUE RP Discord Bot",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"

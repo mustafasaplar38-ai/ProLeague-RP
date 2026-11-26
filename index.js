@@ -1,6 +1,7 @@
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
+const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const {
   Client,
   GatewayIntentBits,
@@ -12,6 +13,7 @@ const {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
+  AttachmentBuilder,
   PermissionsBitField
 } = require('discord.js');
 
@@ -29,25 +31,25 @@ const client = new Client({
 const PREFIX = '.';
 const DATA_DIR = path.join(__dirname, 'data');
 const POSITIONS = ['SNT', 'SĞK', 'SLK', 'OOS', 'MO', 'DOS', 'STP', 'KL'];
-const INSTANCE_ID = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+const INSTANCE_ID = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
 const CLUB_TEMPLATES = [
-  { id: 'galatasaray', name: 'Galatasaray', emoji: '🦁' },
-  { id: 'fenerbahce', name: 'Fenerbahçe', emoji: '🐥' },
-  { id: 'real-madrid', name: 'Real Madrid', emoji: '👑' },
-  { id: 'barcelona', name: 'Barcelona', emoji: '🔴🔵' },
-  { id: 'manchester-city', name: 'Manchester City', emoji: '🩵' },
-  { id: 'manchester-united', name: 'Manchester United', emoji: '🔴' },
-  { id: 'liverpool', name: 'Liverpool', emoji: '🔴' },
-  { id: 'arsenal', name: 'Arsenal', emoji: '🔴⚪' },
-  { id: 'chelsea', name: 'Chelsea', emoji: '🔵' },
-  { id: 'bayern-munih', name: 'Bayern Münih', emoji: '🔴⚪' },
-  { id: 'psg', name: 'PSG', emoji: '🔵🔴' },
-  { id: 'juventus', name: 'Juventus', emoji: '⚫⚪' },
-  { id: 'inter', name: 'Inter', emoji: '⚫🔵' },
-  { id: 'milan', name: 'Milan', emoji: '🔴⚫' },
-  { id: 'atletico-madrid', name: 'Atletico Madrid', emoji: '🔴⚪' },
-  { id: 'borussia-dortmund', name: 'Borussia Dortmund', emoji: '🟡⚫' }
+  { id: 'galatasaray', name: 'Galatasaray', short: 'GS', color: '#f59e0b', emoji: '🦁' },
+  { id: 'fenerbahce', name: 'Fenerbahçe', short: 'FB', color: '#facc15', emoji: '🐥' },
+  { id: 'real-madrid', name: 'Real Madrid', short: 'RMA', color: '#e2e8f0', emoji: '👑' },
+  { id: 'barcelona', name: 'Barcelona', short: 'BAR', color: '#9333ea', emoji: '🔴🔵' },
+  { id: 'manchester-city', name: 'Manchester City', short: 'MCI', color: '#38bdf8', emoji: '🩵' },
+  { id: 'manchester-united', name: 'Manchester United', short: 'MUN', color: '#ef4444', emoji: '🔴' },
+  { id: 'liverpool', name: 'Liverpool', short: 'LIV', color: '#dc2626', emoji: '🔴' },
+  { id: 'arsenal', name: 'Arsenal', short: 'ARS', color: '#f43f5e', emoji: '🔴⚪' },
+  { id: 'chelsea', name: 'Chelsea', short: 'CHE', color: '#2563eb', emoji: '🔵' },
+  { id: 'bayern-munih', name: 'Bayern Münih', short: 'BAY', color: '#e11d48', emoji: '🔴⚪' },
+  { id: 'psg', name: 'PSG', short: 'PSG', color: '#3b82f6', emoji: '🔵🔴' },
+  { id: 'juventus', name: 'Juventus', short: 'JUV', color: '#cbd5e1', emoji: '⚫⚪' },
+  { id: 'inter', name: 'Inter', short: 'INT', color: '#0284c7', emoji: '⚫🔵' },
+  { id: 'milan', name: 'Milan', short: 'MIL', color: '#f97316', emoji: '🔴⚫' },
+  { id: 'atletico-madrid', name: 'Atletico Madrid', short: 'ATM', color: '#fb7185', emoji: '🔴⚪' },
+  { id: 'borussia-dortmund', name: 'Borussia Dortmund', short: 'BVB', color: '#eab308', emoji: '🟡⚫' }
 ];
 
 const QUIZ_POOL = [
@@ -83,37 +85,12 @@ function getDayKey() {
   return `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}-${d.getUTCDate()}`;
 }
 
-function ensureStorage() {
+function writeJson(file, data) {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  for (const [file, def] of Object.entries(DEFAULTS)) {
-    const p = path.join(DATA_DIR, file);
-    if (!fs.existsSync(p)) {
-      writeJson(file, def);
-    }
-  }
-  const clubs = readJson('clubs.json');
-  let changed = false;
-  for (const tpl of CLUB_TEMPLATES) {
-    if (!clubs[tpl.id]) {
-      clubs[tpl.id] = {
-        id: tpl.id,
-        name: tpl.name,
-        emoji: tpl.emoji,
-        coachId: null,
-        captainId: null,
-        penaltyId: null,
-        freekickId: null,
-        cornerId: null,
-        tactic: '4-3-3 Hücum',
-        xi: [],
-        bench: [],
-        positions: {},
-        stats: { o: 0, g: 0, b: 0, m: 0, ag: 0, yg: 0, p: 0 }
-      };
-      changed = true;
-    }
-  }
-  if (changed) writeJson('clubs.json', clubs);
+  const p = path.join(DATA_DIR, file);
+  const tmp = `${p}.tmp.${INSTANCE_ID}`;
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
+  fs.renameSync(tmp, p);
 }
 
 function readJson(file) {
@@ -127,16 +104,42 @@ function readJson(file) {
   }
 }
 
-function writeJson(file, data) {
-  try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+function ensureStorage() {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  for (const [file, def] of Object.entries(DEFAULTS)) {
     const p = path.join(DATA_DIR, file);
-    const tmp = `${p}.tmp.${INSTANCE_ID}`;
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
-    fs.renameSync(tmp, p);
-  } catch (err) {
-    console.error(`[JSON WRITE ERR] ${file}:`, err.message);
+    if (!fs.existsSync(p)) writeJson(file, def);
   }
+  const clubs = readJson('clubs.json');
+  let changed = false;
+  for (const tpl of CLUB_TEMPLATES) {
+    if (!clubs[tpl.id]) {
+      clubs[tpl.id] = {
+        id: tpl.id,
+        name: tpl.name,
+        short: tpl.short,
+        color: tpl.color,
+        emoji: tpl.emoji,
+        coachId: null,
+        captainId: null,
+        penaltyId: null,
+        freekickId: null,
+        cornerId: null,
+        tactic: '4-3-3 Hücum',
+        xi: [],
+        bench: [],
+        positions: {},
+        form: [],
+        stats: { o: 0, g: 0, b: 0, m: 0, ag: 0, yg: 0, p: 0 }
+      };
+      changed = true;
+    } else {
+      if (!clubs[tpl.id].short) clubs[tpl.id].short = tpl.short;
+      if (!clubs[tpl.id].color) clubs[tpl.id].color = tpl.color;
+      if (!Array.isArray(clubs[tpl.id].form)) clubs[tpl.id].form = [];
+    }
+  }
+  if (changed) writeJson('clubs.json', clubs);
 }
 
 function getPlayer(userId, fallbackName = 'Oyuncu') {
@@ -149,6 +152,7 @@ function getPlayer(userId, fallbackName = 'Oyuncu') {
       position: 'STP',
       valueM: 5,
       clubId: null,
+      avatarUrl: null,
       walletM: 0,
       bankM: 0,
       training: 0,
@@ -275,7 +279,304 @@ client.on('voiceStateUpdate', (oldState, newState) => {
   }
 });
 
-// ================= OTOMATİK MAÇ MOTORU =================
+function roundRect(ctx, x, y, w, h, r) {
+  const rad = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rad, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rad);
+  ctx.arcTo(x + w, y + h, x, y + h, rad);
+  ctx.arcTo(x, y + h, x, y, rad);
+  ctx.arcTo(x, y, x + w, y, rad);
+  ctx.closePath();
+}
+
+function drawClubCrest(ctx, cx, cy, radius, club) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fillStyle = '#182235';
+  ctx.fill();
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = club?.color || '#60a5fa';
+  ctx.stroke();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `bold ${Math.max(11, Math.floor(radius * 0.72))}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText((club?.short || 'CLB').slice(0, 3), cx, cy + 1);
+  ctx.restore();
+}
+
+async function renderFixtureImage(weekNumber, matches, clubsMap) {
+  const rows = matches.length;
+  const width = 1040;
+  const height = 220 + rows * 76 + 50;
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+
+  const bgGrad = ctx.createLinearGradient(0, 0, 0, height);
+  bgGrad.addColorStop(0, '#070b14');
+  bgGrad.addColorStop(1, '#0f172a');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.fillStyle = '#1e293b';
+  roundRect(ctx, width / 2 - 75, 26, 150, 30, 8);
+  ctx.fill();
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = 'bold 14px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('PROLEAGUE', width / 2, 46);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 34px sans-serif';
+  ctx.fillText(`${weekNumber}. HAFTA FİKSTÜRÜ`, width / 2, 98);
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '18px sans-serif';
+  ctx.fillText(`${rows} maç`, width / 2, 128);
+
+  matches.forEach((m, idx) => {
+    const y = 160 + idx * 76;
+    const home = clubsMap[m.homeId] || { name: m.homeId, short: 'EV', color: '#38bdf8' };
+    const away = clubsMap[m.awayId] || { name: m.awayId, short: 'DEP', color: '#f97316' };
+
+    const rowGrad = ctx.createLinearGradient(60, y, width - 60, y);
+    rowGrad.addColorStop(0, '#132238');
+    rowGrad.addColorStop(0.5, '#0f172a');
+    rowGrad.addColorStop(1, '#261829');
+
+    ctx.fillStyle = rowGrad;
+    roundRect(ctx, 60, y, width - 120, 62, 14);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    drawClubCrest(ctx, 102, y + 31, 20, home);
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(home.name, 134, y + 38);
+
+    const centerText = m.played && m.score ? m.score : 'VS';
+    ctx.fillStyle = '#1e293b';
+    roundRect(ctx, width / 2 - 36, y + 15, 72, 32, 8);
+    ctx.fill();
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(centerText, width / 2, y + 37);
+
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(away.name, width - 134, y + 38);
+    drawClubCrest(ctx, width - 102, y + 31, 20, away);
+  });
+
+  return canvas.toBuffer('image/png');
+}
+
+async function renderStandingsImage(sortedClubs) {
+  const rows = sortedClubs.length;
+  const width = 1060;
+  const height = 190 + rows * 54 + 40;
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#090d16';
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = 'bold 30px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('PUAN DURUMU', width / 2, 54);
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '16px sans-serif';
+  ctx.fillText('Genel Durum', width / 2, 80);
+
+  const cols = [
+    { label: '#', x: 85, align: 'center' },
+    { label: 'TAKIM', x: 130, align: 'left' },
+    { label: 'O', x: 470, align: 'center' },
+    { label: 'G', x: 515, align: 'center' },
+    { label: 'B', x: 560, align: 'center' },
+    { label: 'M', x: 605, align: 'center' },
+    { label: 'AG', x: 655, align: 'center' },
+    { label: 'YG', x: 705, align: 'center' },
+    { label: 'AV', x: 755, align: 'center' },
+    { label: 'P', x: 805, align: 'center' },
+    { label: 'FORM', x: 925, align: 'center' }
+  ];
+
+  ctx.fillStyle = '#64748b';
+  ctx.font = 'bold 13px sans-serif';
+  for (const c of cols) {
+    ctx.textAlign = c.align;
+    ctx.fillText(c.label, c.x, 122);
+  }
+
+  sortedClubs.forEach((club, idx) => {
+    const y = 138 + idx * 54;
+    const isLeader = idx === 0;
+    const av = club.stats.ag - club.stats.yg;
+
+    ctx.fillStyle = isLeader ? '#2a1f0d' : '#111827';
+    roundRect(ctx, 55, y, width - 110, 46, 10);
+    ctx.fill();
+
+    ctx.lineWidth = isLeader ? 2 : 1;
+    ctx.strokeStyle = isLeader ? '#f59e0b' : 'rgba(255,255,255,0.06)';
+    ctx.stroke();
+
+    ctx.fillStyle = isLeader ? '#f59e0b' : '#cbd5e1';
+    ctx.font = 'bold 15px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(String(idx + 1), 85, y + 28);
+
+    drawClubCrest(ctx, 145, y + 23, 15, club);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(club.name, 170, y + (isLeader ? 21 : 28));
+
+    if (isLeader) {
+      ctx.fillStyle = '#fbbf24';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillText('LİDER', 170, y + 37);
+    }
+
+    const vals = [
+      club.stats.o,
+      club.stats.g,
+      club.stats.b,
+      club.stats.m,
+      club.stats.ag,
+      club.stats.yg,
+      av >= 0 ? `+${av}` : String(av),
+      club.stats.p
+    ];
+    const xs = [470, 515, 560, 605, 655, 705, 755, 805];
+
+    vals.forEach((v, i) => {
+      ctx.textAlign = 'center';
+      ctx.font = i === 7 ? 'bold 17px sans-serif' : '15px sans-serif';
+      ctx.fillStyle = i === 7 ? '#ffffff' : i === 6 ? (av >= 0 ? '#4ade80' : '#f87171') : '#cbd5e1';
+      ctx.fillText(String(v), xs[i], y + 28);
+    });
+
+    const formArr = Array.isArray(club.form) && club.form.length > 0 ? club.form.slice(-5) : ['N', 'N', 'N', 'N', 'N'];
+    for (let k = 0; k < 5; k++) {
+      const code = formArr[k] || 'N';
+      const dotColor = code === 'W' ? '#22c55e' : code === 'D' ? '#eab308' : code === 'L' ? '#ef4444' : '#475569';
+      ctx.beginPath();
+      ctx.arc(872 + k * 24, y + 23, 7, 0, Math.PI * 2);
+      ctx.fillStyle = dotColor;
+      ctx.fill();
+    }
+  });
+
+  return canvas.toBuffer('image/png');
+}
+
+async function renderTopScorersImage(playersList, clubsMap) {
+  const top10 = playersList.slice(0, 10);
+  const width = 920;
+  const height = 175 + Math.max(1, top10.length) * 72 + 35;
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#090d16';
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 34px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('GOL KRALLIĞI', width / 2, 56);
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '18px sans-serif';
+  ctx.fillText('İlk 10', width / 2, 86);
+
+  if (top10.length === 0) {
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '20px sans-serif';
+    ctx.fillText('Henüz gol kaydı bulunmuyor.', width / 2, 175);
+    return canvas.toBuffer('image/png');
+  }
+
+  for (let i = 0; i < top10.length; i++) {
+    const p = top10[i];
+    const y = 120 + i * 72;
+    const isFirst = i === 0;
+    const club = p.clubId ? clubsMap[p.clubId] : null;
+
+    ctx.fillStyle = isFirst ? '#261e0e' : '#111827';
+    roundRect(ctx, 50, y, width - 100, 62, 14);
+    ctx.fill();
+
+    ctx.lineWidth = isFirst ? 2 : 1;
+    ctx.strokeStyle = isFirst ? '#eab308' : 'rgba(255,255,255,0.07)';
+    ctx.stroke();
+
+    ctx.fillStyle = isFirst ? '#facc15' : '#94a3b8';
+    ctx.font = 'bold 18px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(String(i + 1), 82, y + 37);
+
+    const avX = 126;
+    const avY = y + 31;
+    let avatarDrawn = false;
+    if (p.avatarUrl) {
+      try {
+        const img = await loadImage(p.avatarUrl);
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(avX, avY, 21, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.drawImage(img, avX - 21, avY - 21, 42, 42);
+        ctx.restore();
+        avatarDrawn = true;
+      } catch {
+        avatarDrawn = false;
+      }
+    }
+    if (!avatarDrawn) {
+      ctx.beginPath();
+      ctx.arc(avX, avY, 21, 0, Math.PI * 2);
+      ctx.fillStyle = '#1e293b';
+      ctx.fill();
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillText((p.name || 'O').slice(0, 1).toUpperCase(), avX, avY + 5);
+    }
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${p.name} ${p.flag || ''}`, 160, y + 27);
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '14px sans-serif';
+    ctx.fillText(club ? club.name : 'Kulüpsüz', 160, y + 48);
+
+    ctx.fillStyle = isFirst ? '#facc15' : '#38bdf8';
+    ctx.font = 'bold 24px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(String(p.stats?.goals || 0), width - 122, y + 36);
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText('GOL', width - 82, y + 36);
+  }
+
+  return canvas.toBuffer('image/png');
+}
+
 let matchTimer = null;
 
 function pickPlayerFromClub(club, fallbackLabel) {
@@ -293,10 +594,13 @@ function applyStandings(homeId, awayId, homeGoals, awayGoals) {
   const a = clubs[awayId];
   if (!h || !a) return;
 
+  h.form = Array.isArray(h.form) ? h.form : [];
+  a.form = Array.isArray(a.form) ? a.form : [];
+
   h.stats.o += 1;
   a.stats.o += 1;
   h.stats.ag += homeGoals;
-  a.stats.yg += awayGoals;
+  h.stats.yg += awayGoals;
   a.stats.ag += awayGoals;
   a.stats.yg += homeGoals;
 
@@ -304,31 +608,39 @@ function applyStandings(homeId, awayId, homeGoals, awayGoals) {
     h.stats.g += 1;
     h.stats.p += 3;
     a.stats.m += 1;
+    h.form.push('W');
+    a.form.push('L');
   } else if (awayGoals > homeGoals) {
     a.stats.g += 1;
     a.stats.p += 3;
     h.stats.m += 1;
+    a.form.push('W');
+    h.form.push('L');
   } else {
     h.stats.b += 1;
     a.stats.b += 1;
     h.stats.p += 1;
     a.stats.p += 1;
+    h.form.push('D');
+    a.form.push('D');
   }
+  h.form = h.form.slice(-5);
+  a.form = a.form.slice(-5);
   writeJson('clubs.json', clubs);
 }
 
 async function finishMatch(match, channel) {
+  if (matchTimer) {
+    clearInterval(matchTimer);
+    matchTimer = null;
+  }
   match.status = 'finished';
   const clubs = readJson('clubs.json');
   const players = readJson('players.json');
   const homeClub = clubs[match.homeId];
   const awayClub = clubs[match.awayId];
 
-  const participantIds = [
-    ...(homeClub?.xi || []),
-    ...(awayClub?.xi || [])
-  ];
-
+  const participantIds = [...(homeClub?.xi || []), ...(awayClub?.xi || [])];
   let motmId = null;
   let bestScore = -1;
 
@@ -398,7 +710,6 @@ async function simulateOneMinute() {
   const players = readJson('players.json');
   const homeClub = clubs[match.homeId];
   const awayClub = clubs[match.awayId];
-
   const channel = match.channelId ? await client.channels.fetch(match.channelId).catch(() => null) : null;
 
   if (match.minute === 45 && !match.halftimeSent) {
@@ -528,10 +839,8 @@ function startMatchLoop() {
   }, 10000);
 }
 
-// ================= TEK MESSAGECREATE DİNLEYİCİSİ =================
-const processedMessages = new Set();
+const processingMessages = new Set();
 const repliedMessages = new Set();
-const recentUserCmds = new Map();
 
 async function sendOnce(message, payload) {
   if (repliedMessages.has(message.id)) return null;
@@ -551,28 +860,22 @@ client.on('guildMemberAdd', async (member) => {
 });
 
 client.on('messageCreate', async (message) => {
-  try {
-    if (message.author.bot || !message.guild) return;
-    if (processedMessages.has(message.id)) return;
-    processedMessages.add(message.id);
-    setTimeout(() => processedMessages.delete(message.id), 30000);
+  if (message.author.bot || !message.guild) return;
+  if (processingMessages.has(message.id)) return;
+  processingMessages.add(message.id);
+  setTimeout(() => processingMessages.delete(message.id), 30000);
 
+  try {
     recordMessageActivity(message.author.id);
 
     if (!message.content.startsWith(PREFIX)) return;
     const raw = message.content.slice(PREFIX.length).trim();
     if (!raw) return;
 
-    const cmdKey = `${message.author.id}:${raw.toLowerCase()}`;
-    const lastCmdAt = recentUserCmds.get(cmdKey) || 0;
-    if (Date.now() - lastCmdAt < 1200) return;
-    recentUserCmds.set(cmdKey, Date.now());
-
     const args = raw.split(/\s+/);
     const cmd = args.shift().toLowerCase();
     const config = readJson('config.json');
 
-    // 1. KAYIT SİSTEMİ (.k)
     if (cmd === 'k') {
       if (config.registerChannelId && message.channel.id !== config.registerChannelId) {
         return sendOnce(message, '❌ Bu komut yalnızca kayıt kanalında çalışır.');
@@ -593,6 +896,7 @@ client.on('messageCreate', async (message) => {
       p.flag = flag;
       if (POSITIONS.includes(pos)) p.position = pos;
       if (!Number.isNaN(val) && val >= 0) p.valueM = val;
+      p.avatarUrl = target.user.displayAvatarURL({ extension: 'png', size: 128 });
       savePlayer(p);
 
       if (config.unregisteredRoleId && target.roles.cache.has(config.unregisteredRoleId)) {
@@ -606,7 +910,6 @@ client.on('messageCreate', async (message) => {
       return sendOnce(message, `✅ **${p.name}** kaydedildi! (${p.flag} | ${p.position} | ${p.valueM}M€)`);
     }
 
-    // 2. OYUNCU VE DEĞER SİSTEMİ (.değerver, .kariyer, .ara)
     if (cmd === 'değerver' || cmd === 'degerver') {
       if (!isStaff(message.member, config)) return sendOnce(message, '❌ Yetkin yok.');
       const target = message.mentions.members.first();
@@ -626,7 +929,7 @@ client.on('messageCreate', async (message) => {
       const target = message.mentions.users.first() || message.author;
       const p = getPlayer(target.id, target.username);
       const clubs = readJson('clubs.json');
-      const clubName = p.clubId && clubs[p.clubId] ? `${clubs[p.clubId].emoji} ${clubs[p.clubId].name}` : 'Kulüpsüz';
+      const clubName = p.clubId && clubs[p.clubId] ? `${clubs[p.clubId].emoji || '⚽'} ${clubs[p.clubId].name}` : 'Kulüpsüz';
 
       const embed = new EmbedBuilder()
         .setTitle(`📋 Kariyer: ${p.name} ${p.flag}`)
@@ -659,23 +962,16 @@ client.on('messageCreate', async (message) => {
       return sendOnce(message, `🔎 **Arama Sonuçları (${query}):**\n${lines.join('\n')}`);
     }
 
-    // 3. TAKIM VE KADRO SİSTEMİ (.takim)
     if (cmd === 'takim' || cmd === 'takım') {
-      const sub = (args[0] || '').toLowerCase();
-      if (sub === 'kur' || sub === 'ata' || sub === 'takimata') {
-        return;
-      }
-
       const club = findClub(args[0]);
       if (!club) {
-        const list = Object.values(readJson('clubs.json')).map((c) => `${c.emoji} ${c.name}`).join(', ');
+        const list = Object.values(readJson('clubs.json')).map((c) => `${c.emoji || '⚽'} ${c.name}`).join(', ');
         return sendOnce(message, `❌ Geçersiz takım. Takımlar: ${list}`);
       }
 
       const clubs = readJson('clubs.json');
       const liveClub = clubs[club.id];
       syncClubRosterFromGuild(message.guild, liveClub);
-
       const action = (args[1] || '').toLowerCase();
 
       if (action === 'ekle') {
@@ -801,7 +1097,7 @@ client.on('messageCreate', async (message) => {
           : 'Oyuncu yok';
 
       const embed = new EmbedBuilder()
-        .setTitle(`${liveClub.emoji} ${liveClub.name} Kadro & Taktik`)
+        .setTitle(`${liveClub.emoji || '⚽'} ${liveClub.name} Kadro & Taktik`)
         .setColor(0xe67e22)
         .addFields(
           { name: '🧠 Taktik', value: liveClub.tactic, inline: true },
@@ -813,7 +1109,6 @@ client.on('messageCreate', async (message) => {
       return sendOnce(message, { embeds: [embed] });
     }
 
-    // 4. OTOMATİK MAÇ SİSTEMİ (.başlat, .durdur, .maçı bitir)
     if (cmd === 'başlat' || cmd === 'baslat') {
       const mData = readJson('matches.json');
       if (mData.active && mData.active.status === 'paused') {
@@ -858,7 +1153,7 @@ client.on('messageCreate', async (message) => {
 
       writeJson('matches.json', { active: activeMatch });
       startMatchLoop();
-      return sendOnce(message, `⚽ **MAÇ BAŞLADI:** ${home.emoji} **${home.name}** vs **${away.name}** ${away.emoji} (90 dk | 1 dk = 10 sn)`);
+      return sendOnce(message, `⚽ **MAÇ BAŞLADI:** ${home.emoji || '⚽'} **${home.name}** vs **${away.name}** ${away.emoji || '⚽'} (90 dk | 1 dk = 10 sn)`);
     }
 
     if (cmd === 'durdur') {
@@ -868,6 +1163,10 @@ client.on('messageCreate', async (message) => {
       }
       mData.active.status = 'paused';
       writeJson('matches.json', mData);
+      if (matchTimer) {
+        clearInterval(matchTimer);
+        matchTimer = null;
+      }
       return sendOnce(message, `⏸️ Maç **${mData.active.minute}. dakikada** durduruldu.`);
     }
 
@@ -878,18 +1177,16 @@ client.on('messageCreate', async (message) => {
       return sendOnce(message, '🏁 Maç sonlandırıldı ve istatistikler işlendi.');
     }
 
-    // 5. LİG VE FİKSTÜR SİSTEMİ (.fikstür / .fiksür, .puandurum)
-    if (cmd === 'fikstür' || cmd === 'fikstur' || cmd === 'fiksür') {
+    if (cmd === 'fiksür' || cmd === 'fikstür' || cmd === 'fikstur') {
       const fx = readJson('fixtures.json');
-      const weekArg = parseInt(args[0], 10);
+      const clubs = readJson('clubs.json');
 
-      if (!weekArg) {
-        const ids = Object.values(readJson('clubs.json')).map((c) => c.id);
+      if (!fx.weeks || fx.weeks.length === 0) {
+        const ids = Object.keys(clubs);
         const weeks = [];
         const totalWeeks = ids.length - 1;
         const half = ids.length / 2;
         const rotating = ids.slice(1);
-
         for (let w = 0; w < totalWeeks; w++) {
           const round = [ids[0], ...rotating];
           const matches = [];
@@ -901,39 +1198,40 @@ client.on('messageCreate', async (message) => {
         }
         fx.weeks = weeks;
         writeJson('fixtures.json', fx);
-        return sendOnce(message, `📅 **${weeks.length} haftalık lig fikstürü oluşturuldu!** Görüntülemek için: \`.fikstür 1\``);
       }
 
-      const wk = fx.weeks[weekArg - 1];
-      if (!wk) return sendOnce(message, `❌ ${weekArg}. hafta bulunamadı.`);
-      const clubs = readJson('clubs.json');
-      const lines = wk.matches.map((m) => {
-        const h = clubs[m.homeId]?.name || m.homeId;
-        const a = clubs[m.awayId]?.name || m.awayId;
-        return m.played ? `✅ ${h} **${m.score}** ${a}` : `⏳ ${h} vs ${a}`;
-      });
-      return sendOnce(message, `🗓️ **${weekArg}. Hafta Fikstürü:**\n${lines.join('\n')}`);
+      const weekNum = parseInt(args[0], 10) || 1;
+      const wk = fx.weeks[weekNum - 1];
+      if (!wk) return sendOnce(message, `❌ ${weekNum}. hafta bulunamadı.`);
+
+      const buf = await renderFixtureImage(weekNum, wk.matches, clubs);
+      const file = new AttachmentBuilder(buf, { name: `fikstur-hafta-${weekNum}.png` });
+      return sendOnce(message, { files: [file] });
     }
 
     if (cmd === 'puandurum') {
       const clubs = Object.values(readJson('clubs.json')).sort((a, b) => {
         if (b.stats.p !== a.stats.p) return b.stats.p - a.stats.p;
-        const avA = a.stats.ag - a.stats.yg;
-        const avB = b.stats.ag - b.stats.yg;
-        if (avB !== avA) return avB - avA;
+        const avDiff = (b.stats.ag - b.stats.yg) - (a.stats.ag - a.stats.yg);
+        if (avDiff !== 0) return avDiff;
         return b.stats.ag - a.stats.ag;
       });
 
-      const header = '`#  Takım              | O  G  B  M  AG YG AV  P`';
-      const rows = clubs.map((c, i) => {
-        const av = c.stats.ag - c.stats.yg;
-        const namePad = `${c.emoji} ${c.name}`.slice(0, 18).padEnd(18, ' ');
-        return `\`${String(i + 1).padEnd(2)} ${namePad}| ${String(c.stats.o).padEnd(2)} ${String(c.stats.g).padEnd(2)} ${String(c.stats.b).padEnd(2)} ${String(c.stats.m).padEnd(2)} ${String(c.stats.ag).padEnd(2)} ${String(c.stats.yg).padEnd(2)} ${String(av).padEnd(2)} ${String(c.stats.p).padEnd(2)}\``;
-      });
-      return sendOnce(message, `🏆 **PROLEAGUE PUAN DURUMU**\n${header}\n${rows.join('\n')}`);
+      const buf = await renderStandingsImage(clubs);
+      const file = new AttachmentBuilder(buf, { name: 'puandurum.png' });
+      return sendOnce(message, { files: [file] });
     }
 
-    // 6. TRANSFER VE KAP SİSTEMİ (.kap)
+    if (cmd === 'golkrallığı' || cmd === 'golkralligi') {
+      const players = Object.values(readJson('players.json')).sort(
+        (a, b) => (b.stats?.goals || 0) - (a.stats?.goals || 0)
+      );
+      const clubs = readJson('clubs.json');
+      const buf = await renderTopScorersImage(players, clubs);
+      const file = new AttachmentBuilder(buf, { name: 'golkralligi.png' });
+      return sendOnce(message, { files: [file] });
+    }
+
     if (cmd === 'kap') {
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('kap_btn_transfer').setLabel('📋 Kap').setStyle(ButtonStyle.Primary),
@@ -944,7 +1242,6 @@ client.on('messageCreate', async (message) => {
       return sendOnce(message, { content: '📢 **PROLEAGUE TRANSFER & KAP MERKEZİ** — İşlem türünü seçin:', components: [row] });
     }
 
-    // 7. ANTRENMAN SİSTEMİ (.ant)
     if (cmd === 'ant') {
       if (config.trainingChannelId && message.channel.id !== config.trainingChannelId) {
         return sendOnce(message, '❌ Bu komut yalnızca antrenman kanalında çalışır.');
@@ -962,7 +1259,6 @@ client.on('messageCreate', async (message) => {
       return sendOnce(message, `🏋️ **${p.name}** antrenman yaptı! İlerleme: **${p.training}/10**${bonusMsg}`);
     }
 
-    // 8. PENALTI SİSTEMİ (.pen)
     if (cmd === 'pen') {
       const p = getPlayer(message.author.id, message.member.displayName);
       const roll = Math.random();
@@ -984,7 +1280,6 @@ client.on('messageCreate', async (message) => {
       }
     }
 
-    // 9. EKONOMİ SİSTEMİ (.bal, .deposit, .withdraw, .balver)
     if (cmd === 'bal') {
       const target = message.mentions.users.first() || message.author;
       const p = getPlayer(target.id, target.username);
@@ -1031,7 +1326,6 @@ client.on('messageCreate', async (message) => {
       return sendOnce(message, `✅ **${p.name}** cüzdanına **${amt}M€** eklendi (Yeni cüzdan: **${p.walletM}M€**).`);
     }
 
-    // 10. FUTBOL QUİZ SİSTEMİ (.quiz)
     if (cmd === 'quiz') {
       const qData = readJson('quiz.json');
       const available = QUIZ_POOL.filter((item) => !qData.usedIds.includes(item.id));
@@ -1091,7 +1385,6 @@ client.on('messageCreate', async (message) => {
       return;
     }
 
-    // 11. MODERASYON SİSTEMİ (.sil, .rolver, .rolal, .lock, .unlock, .mute, .ban)
     if (cmd === 'sil') {
       if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) return sendOnce(message, '❌ Yetkin yok.');
       const count = parseInt(args[0], 10);
@@ -1155,7 +1448,6 @@ client.on('messageCreate', async (message) => {
       return sendOnce(message, `🔨 **${mem.user.tag}** yasaklandı. Sebep: ${reason}`);
     }
 
-    // 12. OTOMATİK ROL SİSTEMİ (.oto-rol @rol, .oto-rol-kapat)
     if (cmd === 'oto-rol') {
       if (!isStaff(message.member, config)) return sendOnce(message, '❌ Yetkin yok.');
       const role = message.mentions.roles.first();
@@ -1172,7 +1464,6 @@ client.on('messageCreate', async (message) => {
       return sendOnce(message, '✅ Otomatik rol kapatıldı.');
     }
 
-    // 13. AKTİVİTE İSTATİSTİKLERİ (.m, .ses)
     if (cmd === 'm') {
       const target = message.mentions.users.first() || message.author;
       const act = readJson('activity.json');
@@ -1191,17 +1482,16 @@ client.on('messageCreate', async (message) => {
       return sendOnce(message, `🎙️ **${target.username} Ses Aktivitesi:** **${mins} dakika** (${u.voiceSec} sn)`);
     }
 
-    // 14. YARDIM SİSTEMİ (.yardım)
     if (cmd === 'yardım' || cmd === 'yardim') {
       const embed = new EmbedBuilder()
         .setTitle('⚽ PROLEAGUE RP — Komut Menüsü')
         .setColor(0x1abc9c)
         .addFields(
           {
-            name: '👤 Oyuncu Komutları',
+            name: '👤 Oyuncu & Lig Komutları',
             value:
               '`.kariyer [@üye]` • `.ara <isim/mevki>` • `.takim <Takım>`\n' +
-              '`.fikstür [hafta]` • `.puandurum` • `.kap` • `.ant` • `.pen`\n' +
+              '`.fiksür [hafta]` • `.puandurum` • `.golkrallığı` • `.kap` • `.ant` • `.pen`\n' +
               '`.bal [@üye]` • `.deposit <miktar>` • `.withdraw <miktar>` • `.quiz`\n' +
               '`.m [@üye]` • `.ses [@üye]` • `.yardım`'
           },
@@ -1218,7 +1508,6 @@ client.on('messageCreate', async (message) => {
       return sendOnce(message, { embeds: [embed] });
     }
 
-    // Hızlı kanal/TD ayar komutu (.ayar)
     if (cmd === 'ayar') {
       if (!isStaff(message.member, config)) return sendOnce(message, '❌ Yetkin yok.');
       const key = (args[0] || '').toLowerCase();
@@ -1264,7 +1553,6 @@ client.on('messageCreate', async (message) => {
   }
 });
 
-// ================= KAP BUTON, MODAL VE ONAY/RET =================
 client.on('interactionCreate', async (interaction) => {
   try {
     if (interaction.isButton()) {
